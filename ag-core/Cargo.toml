@@ -1,0 +1,23 @@
+[package]
+name = "ag-core"
+description = "Anti-Gravital core: The Shield HTTP layer and Unified Memory Bus"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+libc = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "bus_throughput"
+harness = false

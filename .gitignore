@@ -1,0 +1,23 @@
+# Rust
+target/
+Cargo.lock
+
+# Go
+ag-runtime/vendor/
+*.test
+
+# Build artifacts
+dist/
+*.ag.generated/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Benchmarks output
+benchmarks/results/
