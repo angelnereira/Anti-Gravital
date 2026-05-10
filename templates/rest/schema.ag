@@ -1,0 +1,14 @@
+@version 1.0
+@namespace api
+
+model HealthCheck {
+    status   String
+    version  String
+    uptime   Int
+}
+
+endpoint Health {
+    method   GET
+    path     /health
+    response HealthCheck
+}
