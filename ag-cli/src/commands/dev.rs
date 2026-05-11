@@ -1,10 +1,7 @@
-use std::sync::Arc;
-
 use clap::Args;
 use tracing::info;
 
-use ag_core::bus::MemoryBus;
-use ag_core::shield::{Shield, ShieldConfig};
+use ag_core::{start_server, ServerConfig};
 
 #[derive(Args)]
 pub struct DevArgs {
@@ -31,16 +28,8 @@ pub async fn run(args: DevArgs) -> anyhow::Result<()> {
     info!("Metrics:       http://{addr}/metrics");
     info!("Press Ctrl+C to stop");
 
-    let bus = Arc::new(MemoryBus::create(ag_core::BUS_DEFAULT_NAME)?);
-
-    let config = ShieldConfig {
-        addr,
-        tls_cert: None,
-        tls_key: None,
-        ..Default::default()
-    };
-    let shield = Shield::new(config, Arc::clone(&bus));
-    shield.run().await?;
+    let config = ServerConfig::builder().addr(addr).build();
+    start_server(config).await?;
 
     Ok(())
 }

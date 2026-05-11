@@ -1,3 +1,3 @@
-pub mod http;
+pub mod layer;
 
-pub use http::{Shield, ShieldConfig, ShieldError};
+pub use layer::{ShieldLayer, ShieldService};

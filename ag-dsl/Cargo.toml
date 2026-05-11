@@ -1,0 +1,15 @@
+[package]
+name = "ag-dsl"
+description = "Anti-Gravital DSL: lexer, parser, AST, and code generators for .ag schema files"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
