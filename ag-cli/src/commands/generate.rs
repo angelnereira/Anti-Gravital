@@ -4,6 +4,8 @@ use std::path::Path;
 use clap::Args;
 use tracing::info;
 
+use ag_dsl::codegen;
+
 #[derive(Args)]
 pub struct GenerateArgs {
     /// Path to the schema file.
@@ -13,6 +15,10 @@ pub struct GenerateArgs {
     /// Output directory for generated files.
     #[arg(long, default_value = "src")]
     out_dir: String,
+
+    /// Write generated files to disk instead of printing a summary.
+    #[arg(long)]
+    write: bool,
 }
 
 pub async fn run(args: GenerateArgs) -> anyhow::Result<()> {
@@ -22,27 +28,36 @@ pub async fn run(args: GenerateArgs) -> anyhow::Result<()> {
     }
 
     let source = fs::read_to_string(schema_path)?;
-    info!("Parsing schema from '{}'", args.schema);
+    info!("Compiling schema from '{}'", args.schema);
 
-    match ag_core::dsl::parse(&source) {
-        Ok(_schema) => {
-            info!("Schema parsed successfully");
-            println!("Would generate:");
-            println!("  {}/rust/models.rs", args.out_dir);
-            println!("  {}/rust/validators.rs", args.out_dir);
-            println!("  {}/go/models.go", args.out_dir);
-            println!("  {}/go/handlers_stubs.go", args.out_dir);
-            println!("  {}/go/queries.sql.go", args.out_dir);
-            println!("  {}/ts/types.ts", args.out_dir);
-            println!("  {}/ts/client.ts", args.out_dir);
-            println!("  openapi.yaml");
+    let schema = ag_dsl::compile(&source)
+        .map_err(|e| anyhow::anyhow!("DSL error: {e}"))?;
+
+    info!(
+        models = schema.models.len(),
+        endpoints = schema.endpoints.len(),
+        "Schema compiled"
+    );
+
+    let files = codegen::generate_all(&schema)
+        .map_err(|e| anyhow::anyhow!("codegen error: {e}"))?;
+
+    if args.write {
+        let out = Path::new(&args.out_dir);
+        for f in &files {
+            let dest = out.join(&f.path);
+            if let Some(parent) = dest.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&dest, &f.content)?;
+            info!("Written {}", dest.display());
         }
-        Err(ag_core::dsl::DslError::Parse { .. }) => {
-            println!("Note: The Anti-DSL parser is scheduled for Phase 3.");
-            println!("Schema file '{}' was found and read ({} bytes).", args.schema, source.len());
-            println!("Code generation will be available once the parser is implemented.");
+    } else {
+        println!("Would generate:");
+        for f in &files {
+            println!("  {}/{}", args.out_dir, f.path);
         }
-        Err(e) => return Err(e.into()),
+        println!("\nRun with --write to write files to disk.");
     }
 
     Ok(())

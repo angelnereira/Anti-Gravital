@@ -1,59 +1,63 @@
 # Anti-Gravital
 
-A high-performance web framework built on Rust and Go that compiles to a single static binary. Anti-Gravital combines the memory safety and zero-cost abstractions of Rust with the concurrency model and developer ergonomics of Go, connected by a nanosecond-latency shared memory bus.
+A high-performance web framework written entirely in Rust. Anti-Gravital builds on Axum, Tower, and Tokio to deliver a schema-first, type-safe development experience without sacrificing throughput.
 
 ## What It Is
 
-Anti-Gravital eliminates the traditional tradeoffs between performance and productivity in backend development. The framework is structured as a triad:
+Anti-Gravital eliminates the traditional tradeoffs between performance and productivity in backend development. The framework is structured as two cooperating layers:
 
-- **The Shield** (Rust): HTTP/TLS termination, request validation, and rate limiting. The Shield never allocates on the hot path and handles all network I/O using Tokio's async runtime.
-- **The Brain** (Go): Business logic runtime. Go routines handle route dispatch, module execution, and response composition. The Brain is where application developers write their code.
-- **The Memory Bus**: A POSIX shared memory ring buffer connecting the Shield and the Brain within the same machine. Slots transition through well-defined states (EMPTY -> WRITING -> READY -> READING -> DONE -> EMPTY) using lock-free atomic operations. Round-trip latency under load is sub-microsecond.
+- **The Shield** (Tower middleware): HTTP request validation, JWT verification, rate limiting, and CORS. Implemented as a composable Tower `Layer` that wraps any Axum router. Schema contracts compiled from `.ag` files enforce the API surface at the boundary — invalid requests never reach handler code.
+- **The Core** (Axum handlers): Type-safe handler functions, structured errors that serialize to consistent JSON, and request context extraction. Application developers write handler functions here; the framework handles routing, serialization, and observability.
 
-The result is a framework that targets TechEmpower Fortunes benchmark performance in the top tier while presenting a schema-first, type-safe development experience.
+The result is a single-binary framework that targets TechEmpower benchmark performance in the top tier while presenting a schema-first, type-safe development experience.
 
 ## Design Principles
 
-**Zero-Overhead Abstraction**: Every layer of the framework is designed so that the abstraction costs nothing at runtime. The Rust HTTP layer does not heap-allocate per request. The shared memory bus does not copy data between layers.
+**Zero-Overhead Abstraction**: The Rust HTTP layer does not heap-allocate on the hot path. Tower middleware composes at compile time; the cost of the full middleware stack is a single virtual dispatch.
 
-**Single Binary**: A production deployment is a single executable with no external runtime, no JVM, no interpreter, no shared libraries beyond libc. The Go runtime is compiled in. The entire application, including TLS certificates and static assets, ships as one artifact.
+**Single Binary**: A production deployment is one static executable. No external runtime, no JVM, no interpreter. The entire application, including TLS certificates and embedded assets, ships as one artifact.
 
-**Schema First**: Application structure is defined in `.ag` schema files. The `ag` CLI generates type-safe handler stubs, validation logic, OpenAPI documentation, and database migration plans from the schema. The schema is the source of truth.
+**Schema First**: Application structure is defined in `.ag` schema files. The `ag` CLI generates type-safe Rust structs, TypeScript interfaces, and OpenAPI 3.1 documentation from the schema. The schema is the source of truth; type drift between frontend and backend becomes a compile error.
 
-**Memory Safety**: The Rust layer provides memory safety guarantees for all network-facing code. The shared memory protocol is verified at compile time via size assertions and at runtime via magic number validation.
-
-**Concurrency First**: The design assumes high concurrency from the start. The ring buffer supports multiple concurrent writers via compare-and-swap slot claiming. The Go Brain runs a configurable worker pool consuming the ring buffer.
+**Async Native**: The framework is built on Tokio's async runtime. Every handler is a `Future`. There are no blocking thread pools, no CGO bridges, and no shared memory segments — just stackless async tasks scheduled by Tokio.
 
 ## Architecture
 
 ```
                     Incoming Requests
                            |
-                    +------v------+
-                    |  The Shield |  (Rust / Tokio)
-                    |  TLS + HTTP |
-                    +------+------+
-                           |  POSIX Shared Memory
-                           |  Ring Buffer (64MB)
-                    +------v------+
-                    |  The Brain  |  (Go Runtime)
-                    |  Goroutines |
-                    +------+------+
+              +------------v-------------+
+              |       Tower Stack        |
+              |                          |
+              |  request-id middleware   |
+              |  trace middleware        |
+              |  timeout middleware      |
+              |  compression middleware  |
+              |  cors middleware         |
+              |                          |
+              |  ShieldLayer             |  Schema validation
+              |  (Phase 1+)              |  JWT verification
+              |                          |  Rate limiting
+              +------------+-------------+
                            |
-               +-----------+-----------+
-               |           |           |
-           ag-auth      ag-data    ag-realtime   (Phase 2+)
+              +------------v-------------+
+              |       Axum Router        |
+              |                          |
+              |  GET /health             |  Core handlers
+              |  GET /metrics            |
+              |  ...application routes   |
+              +------------+-------------+
+                           |
+                    HTTP Response
 ```
 
-The shared memory segment is 64MB organized as a header (256 bytes) followed by 8192-byte slots. The Rust side claims slots via atomic compare-and-swap, writes request data, and transitions the slot to READY. Go workers scan for READY slots, transition to READING, execute the handler, write the response, and transition to DONE. The Rust side spin-waits (with futex notification for CPU efficiency) for the DONE state, reads the response, and sends it to the client.
+The Shield and Core share a single OS thread pool managed by Tokio. There is no inter-process communication, no shared memory segment, and no serialization cost between layers.
 
 ## Quick Start
 
 ### Prerequisites
 
 - Rust 1.75 or newer (`rustup update stable`)
-- Go 1.21 or newer
-- Linux or macOS (Windows support planned for Phase 4)
 
 ### Installation
 
@@ -70,50 +74,32 @@ ag new my-api --template rest
 cd my-api
 ```
 
-This creates:
-```
-my-api/
-  schema.ag          # Your API schema
-  src/
-    handlers/        # Go handler implementations
-  go.mod
-```
-
 ### Define Your Schema
 
 Edit `schema.ag`:
 
 ```
-@version 1.0
-@namespace api
-
 model User {
-    id       UUID
-    name     String   @min(1) @max(100)
-    email    String   @format(email)
-    created  Timestamp
+  id:    UUID      @primary
+  email: Email     @unique
+  name:  String
 }
 
-endpoint GetUser {
-    method   GET
-    path     /users/:id
-    auth     required
-    response User
-}
-
-endpoint CreateUser {
-    method   POST
-    path     /users
-    body     CreateUserRequest
-    response User
-}
+endpoint GET /users/{id} -> User
+  auth: jwt
+  validate: strict
 ```
 
 ### Generate Code
 
 ```sh
-ag generate
+ag generate --write
 ```
+
+This writes:
+- `src/generated/models.rs` — Serde-annotated Rust structs
+- `src/generated/models.ts` — TypeScript interfaces
+- `openapi.json` — OpenAPI 3.1 specification
 
 ### Run in Development Mode
 
@@ -121,50 +107,65 @@ ag generate
 ag dev
 ```
 
+### Inspect a Running Server
+
+```sh
+# Health check
+curl http://localhost:3000/health
+
+# Metrics
+curl http://localhost:3000/metrics
+
+# Benchmark
+ag bench --endpoint /health --concurrency 100 --requests 10000
+```
+
 ### Build for Production
 
 ```sh
-ag build --target x86_64-unknown-linux-musl
+ag build --release
 ```
 
-Produces a single static binary in `dist/`.
+Produces a single static binary in `target/release/`.
 
-## Current Status: Phase 0 - Foundations
+## Current Status: Phase 1
 
-Phase 0 establishes the project skeleton, build toolchain, and the Memory Bus implementation.
+Phase 0 (pure-Rust foundation with Axum + Tokio) is complete. Phase 1 is in progress.
 
-| Phase | Status      | Description                              |
-|-------|-------------|------------------------------------------|
-| 0     | In Progress | Foundations: build system, Memory Bus   |
-| 1     | Planned     | Shield: HTTP/TLS, routing, bus write    |
-| 2     | Planned     | Brain: goroutine pool, modules          |
-| 3     | Planned     | DSL: parser, code generator, CLI        |
-| 4     | Planned     | Production: benchmarks, hardening       |
-
-## Build Requirements
-
-- Rust 1.75+ (`rustup toolchain install stable`)
-- Go 1.21+
-- For cross-compilation: `cross` (`cargo install cross`)
-- For WASM plugins: `wasm-pack`
+| Phase | Status      | Description                                        |
+|-------|-------------|----------------------------------------------------|
+| 0     | Complete    | Axum + Tokio skeleton, Shield Tower layer, CLI     |
+| 1     | In Progress | JWT auth, schema validation, ShieldLayer populated |
+| 2     | Planned     | sqlx integration, async-nats, moka cache           |
+| 3     | Planned     | DSL code generator, deploy tooling                 |
+| 4     | Planned     | WASM plugins, tokio-console integration            |
 
 ## Building
 
 ```sh
-# Build the Rust components (ag-core library + ag CLI)
-cargo build --release
-
-# Build the Go runtime
-cd ag-runtime
-go build ./...
+# Build all crates
+cargo build --workspace
 
 # Run tests
-cargo test
-cd ag-runtime && go test ./...
+cargo test --workspace
 
-# Run benchmarks
-cargo bench
-cd ag-runtime && go test -bench=. -benchmem ./benchmarks/...
+# Run benchmarks (requires a Criterion baseline)
+cargo bench -p ag-core
+
+# Build release binary
+cargo build --release -p ag
+```
+
+## Workspace Layout
+
+```
+anti-gravital/
+  ag-core/        # Shield middleware + Core handlers + Axum server
+  ag-dsl/         # .ag schema lexer, parser, semantic checker, and code generators
+  ag-cli/         # `ag` command-line tool
+  ag-wasm/        # WebAssembly plugin host (Phase 4)
+  examples/       # Runnable example applications
+  docs/           # Architecture and API documentation
 ```
 
 ## License

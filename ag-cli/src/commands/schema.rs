@@ -41,23 +41,18 @@ async fn lint(schema_path: &str) -> anyhow::Result<()> {
     let source = fs::read_to_string(path)?;
     println!("Linting '{schema_path}' ({} bytes)...", source.len());
 
-    match ag_core::dsl::parse(&source) {
+    match ag_dsl::compile(&source) {
         Ok(schema) => {
-            match ag_core::dsl::validate(&schema) {
-                Ok(()) => println!("No issues found."),
-                Err(errors) => {
-                    for e in &errors {
-                        eprintln!("  error: {e}");
-                    }
-                    anyhow::bail!("{} semantic error(s)", errors.len());
-                }
-            }
+            println!(
+                "No issues found. ({} models, {} endpoints)",
+                schema.models.len(),
+                schema.endpoints.len()
+            );
         }
-        Err(ag_core::dsl::DslError::Parse { .. }) => {
-            println!("Note: Anti-DSL parser is scheduled for Phase 3.");
-            println!("Basic file checks passed (file exists and is readable).");
+        Err(e) => {
+            eprintln!("  error: {e}");
+            anyhow::bail!("lint failed");
         }
-        Err(e) => return Err(e.into()),
     }
 
     Ok(())
