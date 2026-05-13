@@ -13,12 +13,12 @@ pub struct GenerateArgs {
     schema: String,
 
     /// Output directory for generated files.
-    #[arg(long, default_value = "src")]
+    #[arg(long, default_value = ".")]
     out_dir: String,
 
-    /// Write generated files to disk instead of printing a summary.
+    /// Preview which files would be written without actually writing them.
     #[arg(long)]
-    write: bool,
+    dry_run: bool,
 }
 
 pub async fn run(args: GenerateArgs) -> anyhow::Result<()> {
@@ -42,7 +42,13 @@ pub async fn run(args: GenerateArgs) -> anyhow::Result<()> {
     let files = codegen::generate_all(&schema)
         .map_err(|e| anyhow::anyhow!("codegen error: {e}"))?;
 
-    if args.write {
+    if args.dry_run {
+        println!("Dry run — no files written. Would generate:");
+        for f in &files {
+            println!("  {}/{}", args.out_dir, f.path);
+        }
+        println!("\nRemove --dry-run to write files to disk.");
+    } else {
         let out = Path::new(&args.out_dir);
         for f in &files {
             let dest = out.join(&f.path);
@@ -50,14 +56,10 @@ pub async fn run(args: GenerateArgs) -> anyhow::Result<()> {
                 fs::create_dir_all(parent)?;
             }
             fs::write(&dest, &f.content)?;
+            println!("Written {}", dest.display());
             info!("Written {}", dest.display());
         }
-    } else {
-        println!("Would generate:");
-        for f in &files {
-            println!("  {}/{}", args.out_dir, f.path);
-        }
-        println!("\nRun with --write to write files to disk.");
+        println!("\nGenerated {} file(s).", files.len());
     }
 
     Ok(())

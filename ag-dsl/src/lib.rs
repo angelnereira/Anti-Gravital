@@ -23,21 +23,56 @@ mod tests {
     use super::*;
 
     const EXAMPLE: &str = r#"
-model User {
-  id: UUID @primary
-  email: Email @unique
-  name: String
+enum UserRole {
+  USER
+  ADMIN
 }
 
-endpoint GET /users/{id} -> User
-  auth: jwt
-  validate: strict
+model User {
+  id    UUID      @primary @auto
+  email String    @unique @max(255)
+  name  String    @max(100)
+  role  UserRole  @default(USER)
+}
+
+request CreateUserRequest {
+  email String @email
+  name  String @min(2) @max(100)
+}
+
+endpoint GetUser {
+  method   GET
+  path     /users/{id}
+  auth     required
+  response User
+}
+
+endpoint CreateUser {
+  method   POST
+  path     /users
+  auth     required
+  body     CreateUserRequest
+  response User
+}
 "#;
 
     #[test]
     fn compile_example_succeeds() {
         let schema = compile(EXAMPLE).unwrap();
         assert_eq!(schema.models.len(), 1);
-        assert_eq!(schema.endpoints.len(), 1);
+        assert_eq!(schema.enums.len(), 1);
+        assert_eq!(schema.requests.len(), 1);
+        assert_eq!(schema.endpoints.len(), 2);
+    }
+
+    #[test]
+    fn compile_generates_all_files() {
+        let schema = compile(EXAMPLE).unwrap();
+        let files = codegen::generate_all(&schema).unwrap();
+        assert!(files.len() >= 4);
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        assert!(paths.contains(&"src/models.rs"), "missing src/models.rs");
+        assert!(paths.contains(&"src/models.ts"), "missing src/models.ts");
+        assert!(paths.contains(&"openapi.yaml"), "missing openapi.yaml");
     }
 }

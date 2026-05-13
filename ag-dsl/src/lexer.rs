@@ -1,12 +1,29 @@
 use crate::error::DslError;
 
+/// All tokens produced by the v3.0 `.ag` lexer.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    // Keywords
+    // Top-level keywords
     Model,
+    Request,
     Endpoint,
+    Enum,
+    Event,
 
-    // HTTP methods
+    // Endpoint block field keywords
+    Method,
+    Path,
+    Auth,
+    Body,
+    Response,
+    Errors,
+    Policy,
+
+    // Auth value keywords
+    Required,
+    Optional,
+
+    // HTTP method keywords (only when standalone)
     Get,
     Post,
     Put,
@@ -16,15 +33,19 @@ pub enum Token {
     // Punctuation
     LBrace,
     RBrace,
-    Colon,
+    LBracket,
+    RBracket,
+    LParen,
+    RParen,
+    Comma,
     At,
-    Arrow,
     Question,
 
     // Literals
     Ident(String),
-    Path(String),
+    PathLit(String),
     StringLit(String),
+    Number(String),
 
     // Whitespace / structure
     Newline,
@@ -99,10 +120,38 @@ impl<'src> Lexer<'src> {
                 continue;
             }
 
-            if ch == ':' {
+            if ch == '[' {
                 let span = self.span();
                 self.advance();
-                tokens.push(Lexeme { token: Token::Colon, span });
+                tokens.push(Lexeme { token: Token::LBracket, span });
+                continue;
+            }
+
+            if ch == ']' {
+                let span = self.span();
+                self.advance();
+                tokens.push(Lexeme { token: Token::RBracket, span });
+                continue;
+            }
+
+            if ch == '(' {
+                let span = self.span();
+                self.advance();
+                tokens.push(Lexeme { token: Token::LParen, span });
+                continue;
+            }
+
+            if ch == ')' {
+                let span = self.span();
+                self.advance();
+                tokens.push(Lexeme { token: Token::RParen, span });
+                continue;
+            }
+
+            if ch == ',' {
+                let span = self.span();
+                self.advance();
+                tokens.push(Lexeme { token: Token::Comma, span });
                 continue;
             }
 
@@ -120,18 +169,10 @@ impl<'src> Lexer<'src> {
                 continue;
             }
 
-            if ch == '-' && self.peek(1) == Some('>') {
-                let span = self.span();
-                self.advance();
-                self.advance();
-                tokens.push(Lexeme { token: Token::Arrow, span });
-                continue;
-            }
-
             if ch == '/' {
                 let span = self.span();
                 let path = self.read_path();
-                tokens.push(Lexeme { token: Token::Path(path), span });
+                tokens.push(Lexeme { token: Token::PathLit(path), span });
                 continue;
             }
 
@@ -142,19 +183,17 @@ impl<'src> Lexer<'src> {
                 continue;
             }
 
+            if ch.is_ascii_digit() {
+                let span = self.span();
+                let n = self.read_number();
+                tokens.push(Lexeme { token: Token::Number(n), span });
+                continue;
+            }
+
             if ch.is_ascii_alphabetic() || ch == '_' {
                 let span = self.span();
                 let word = self.read_ident();
-                let tok = match word.as_str() {
-                    "model" => Token::Model,
-                    "endpoint" => Token::Endpoint,
-                    "GET" => Token::Get,
-                    "POST" => Token::Post,
-                    "PUT" => Token::Put,
-                    "PATCH" => Token::Patch,
-                    "DELETE" => Token::Delete,
-                    _ => Token::Ident(word),
-                };
+                let tok = keyword_or_ident(word);
                 tokens.push(Lexeme { token: tok, span });
                 continue;
             }
@@ -167,10 +206,6 @@ impl<'src> Lexer<'src> {
 
     fn current(&self) -> char {
         self.src[self.pos..].chars().next().unwrap_or('\0')
-    }
-
-    fn peek(&self, offset: usize) -> Option<char> {
-        self.src[self.pos..].chars().nth(offset)
     }
 
     fn advance(&mut self) {
@@ -210,7 +245,20 @@ impl<'src> Lexer<'src> {
         let start = self.pos;
         while self.pos < self.src.len() {
             let ch = self.current();
-            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        self.src[start..self.pos].to_owned()
+    }
+
+    fn read_number(&mut self) -> String {
+        let start = self.pos;
+        while self.pos < self.src.len() {
+            let ch = self.current();
+            if ch.is_ascii_digit() || ch == '.' {
                 self.advance();
             } else {
                 break;
@@ -223,6 +271,7 @@ impl<'src> Lexer<'src> {
         let start = self.pos;
         while self.pos < self.src.len() {
             let ch = self.current();
+            // Paths end at whitespace or newlines
             if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
                 break;
             }
@@ -249,37 +298,129 @@ impl<'src> Lexer<'src> {
     }
 }
 
+fn keyword_or_ident(word: String) -> Token {
+    match word.as_str() {
+        // Top-level keywords
+        "model" => Token::Model,
+        "request" => Token::Request,
+        "endpoint" => Token::Endpoint,
+        "enum" => Token::Enum,
+        "event" => Token::Event,
+        // Endpoint block field keywords
+        "method" => Token::Method,
+        "path" => Token::Path,
+        "auth" => Token::Auth,
+        "body" => Token::Body,
+        "response" => Token::Response,
+        "errors" => Token::Errors,
+        "policy" => Token::Policy,
+        // Auth value keywords
+        "required" => Token::Required,
+        "optional" => Token::Optional,
+        // HTTP methods (uppercase)
+        "GET" => Token::Get,
+        "POST" => Token::Post,
+        "PUT" => Token::Put,
+        "PATCH" => Token::Patch,
+        "DELETE" => Token::Delete,
+        _ => Token::Ident(word),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn tokenizes_model_keyword() {
-        let tokens = Lexer::new("model").tokenize().unwrap();
-        assert!(matches!(tokens[0].token, Token::Model));
+    fn tokenize(src: &str) -> Vec<Token> {
+        Lexer::new(src).tokenize().unwrap().into_iter().map(|l| l.token).collect()
     }
 
     #[test]
-    fn tokenizes_arrow() {
-        let tokens = Lexer::new("->").tokenize().unwrap();
-        assert!(matches!(tokens[0].token, Token::Arrow));
+    fn tokenizes_model_keyword() {
+        let tokens = tokenize("model");
+        assert!(matches!(tokens[0], Token::Model));
+    }
+
+    #[test]
+    fn tokenizes_request_keyword() {
+        let tokens = tokenize("request");
+        assert!(matches!(tokens[0], Token::Request));
+    }
+
+    #[test]
+    fn tokenizes_enum_keyword() {
+        let tokens = tokenize("enum");
+        assert!(matches!(tokens[0], Token::Enum));
     }
 
     #[test]
     fn tokenizes_http_method() {
-        let tokens = Lexer::new("GET").tokenize().unwrap();
-        assert!(matches!(tokens[0].token, Token::Get));
+        let tokens = tokenize("GET");
+        assert!(matches!(tokens[0], Token::Get));
     }
 
     #[test]
-    fn tokenizes_path() {
-        let tokens = Lexer::new("/users/{id}").tokenize().unwrap();
-        assert!(matches!(&tokens[0].token, Token::Path(p) if p == "/users/{id}"));
+    fn tokenizes_path_literal() {
+        let tokens = tokenize("/users/{id}");
+        assert!(matches!(&tokens[0], Token::PathLit(p) if p == "/users/{id}"));
+    }
+
+    #[test]
+    fn tokenizes_at_directive() {
+        let tokens = tokenize("@primary");
+        assert!(matches!(tokens[0], Token::At));
+        assert!(matches!(&tokens[1], Token::Ident(s) if s == "primary"));
+    }
+
+    #[test]
+    fn tokenizes_directive_with_arg() {
+        let tokens = tokenize("@max(255)");
+        assert!(matches!(tokens[0], Token::At));
+        assert!(matches!(&tokens[1], Token::Ident(s) if s == "max"));
+        assert!(matches!(tokens[2], Token::LParen));
+        assert!(matches!(&tokens[3], Token::Number(n) if n == "255"));
+        assert!(matches!(tokens[4], Token::RParen));
+    }
+
+    #[test]
+    fn tokenizes_directive_with_ident_arg() {
+        let tokens = tokenize("@default(USER)");
+        assert!(matches!(tokens[0], Token::At));
+        assert!(matches!(&tokens[1], Token::Ident(s) if s == "default"));
+        assert!(matches!(tokens[2], Token::LParen));
+        assert!(matches!(&tokens[3], Token::Ident(s) if s == "USER"));
+        assert!(matches!(tokens[4], Token::RParen));
+    }
+
+    #[test]
+    fn tokenizes_brackets_for_errors_list() {
+        let tokens = tokenize("[EmailTaken, ValidationError]");
+        assert!(matches!(tokens[0], Token::LBracket));
+        assert!(matches!(&tokens[1], Token::Ident(s) if s == "EmailTaken"));
+        assert!(matches!(tokens[2], Token::Comma));
+        assert!(matches!(&tokens[3], Token::Ident(s) if s == "ValidationError"));
+        assert!(matches!(tokens[4], Token::RBracket));
     }
 
     #[test]
     fn skips_line_comments() {
-        let tokens = Lexer::new("# comment\nmodel").tokenize().unwrap();
-        assert!(matches!(tokens[1].token, Token::Model));
+        let tokens = tokenize("# comment\nmodel");
+        // tokens: Newline, Model, Eof
+        let non_eof: Vec<_> = tokens.iter().filter(|t| !matches!(t, Token::Eof)).collect();
+        assert!(non_eof.iter().any(|t| matches!(t, Token::Model)));
+    }
+
+    #[test]
+    fn tokenizes_string_literal() {
+        let tokens = tokenize("\"user.role != BANNED\"");
+        assert!(matches!(&tokens[0], Token::StringLit(s) if s == "user.role != BANNED"));
+    }
+
+    #[test]
+    fn field_without_colon() {
+        // Ensure no colon token is needed between field name and type
+        let tokens = tokenize("id UUID");
+        assert!(matches!(&tokens[0], Token::Ident(s) if s == "id"));
+        assert!(matches!(&tokens[1], Token::Ident(s) if s == "UUID"));
     }
 }
