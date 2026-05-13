@@ -1,0 +1,12 @@
+[package]
+name = "ag-ui"
+description = "Anti-Gravital module: ag-ui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+tracing = { workspace = true }

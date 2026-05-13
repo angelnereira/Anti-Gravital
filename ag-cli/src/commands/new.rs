@@ -17,16 +17,16 @@ pub struct NewArgs {
 #[derive(Clone, clap::ValueEnum)]
 enum Template {
     Rest,
-    Graphql,
-    Grpc,
+    Fullstack,
+    Realtime,
 }
 
 impl std::fmt::Display for Template {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Template::Rest => write!(f, "rest"),
-            Template::Graphql => write!(f, "graphql"),
-            Template::Grpc => write!(f, "grpc"),
+            Template::Fullstack => write!(f, "fullstack"),
+            Template::Realtime => write!(f, "realtime"),
         }
     }
 }
@@ -42,59 +42,70 @@ pub async fn run(args: NewArgs) -> anyhow::Result<()> {
     info!("Creating project '{name}' from template '{}'", args.template);
 
     fs::create_dir_all(dir.join("src/handlers"))?;
+    fs::create_dir_all(dir.join("src/db/migrations"))?;
+    fs::create_dir_all(dir.join("ts"))?;
 
     // schema.ag
-    let namespace = name.replace('-', "_");
     let schema = format!(
-        r#"@version 1.0
-@namespace {namespace}
-
-model HealthCheck {{
-    status   String
-    version  String
-    uptime   Int
+        r#"model HealthCheck {{
+  status  String
+  version String
+  uptime  Int
 }}
 
 endpoint Health {{
-    method   GET
-    path     /health
-    response HealthCheck
+  method   GET
+  path     /health
+  response HealthCheck
 }}
 "#
     );
     fs::write(dir.join("schema.ag"), schema)?;
 
-    // go.mod
-    let go_mod = format!(
-        "module github.com/example/{name}\n\ngo 1.21\n\nrequire github.com/gravital-labs/anti-gravital/ag-runtime v0.1.0\n"
-    );
-    fs::write(dir.join("go.mod"), go_mod)?;
+    // Handler stub (the developer fills the body)
+    let handler = r#"use axum::Json;
+use ag_core::core::error::AgResult;
 
-    // Health handler stub
-    let handler = r#"package handlers
+use crate::models::HealthCheck;
 
-import "github.com/gravital-labs/anti-gravital/ag-runtime/brain"
-
-// HealthHandler implements the Health endpoint defined in schema.ag.
-type HealthHandler struct{}
-
-func (h *HealthHandler) Health(ctx brain.Context) error {
-	return ctx.JSON(200, map[string]interface{}{
-		"status":  "ok",
-		"version": "0.1.0",
-		"uptime":  0,
-	})
+pub async fn health() -> AgResult<Json<HealthCheck>> {
+    Ok(Json(HealthCheck {
+        status: "ok".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
+        uptime: 0,
+    }))
 }
 "#;
-    fs::write(dir.join("src/handlers/health.go"), handler)?;
+    fs::write(dir.join("src/handlers/health.rs"), handler)?;
+
+    // Cargo.toml for the generated project
+    let cargo_toml = format!(
+        r#"[package]
+name = "{name}"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ag-core = "0.1"
+tokio = {{ version = "1", features = ["full"] }}
+axum = "0.7"
+serde = {{ version = "1", features = ["derive"] }}
+serde_json = "1"
+"#
+    );
+    fs::write(dir.join("Cargo.toml"), cargo_toml)?;
 
     // .gitignore
-    fs::write(dir.join(".gitignore"), "dist/\n*.ag.generated/\n")?;
+    fs::write(
+        dir.join(".gitignore"),
+        "target/\ndist/\n*.ag.generated/\n",
+    )?;
 
     println!("Created project '{name}'");
     println!();
     println!("  cd {name}");
-    println!("  ag generate    # generate code from schema.ag");
-    println!("  ag dev         # start development server");
+    println!("  ag generate    # generate Rust, TypeScript, and OpenAPI from schema.ag");
+    println!("  ag dev         # start the development server");
+    println!("  ag build       # build a single static binary for production");
     Ok(())
 }

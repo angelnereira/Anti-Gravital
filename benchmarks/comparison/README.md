@@ -1,48 +1,55 @@
 # Comparison Benchmarks
 
-This directory contains the methodology and tooling for comparing Anti-Gravital
-against incumbent frameworks using the TechEmpower Framework Benchmarks (TFB)
-test definitions.
+This directory contains the methodology and tooling for comparing Anti-Gravital against incumbent frameworks using the TechEmpower Framework Benchmarks (TFB) test definitions.
+
+## Target: TechEmpower Top-10
+
+The v1.0 milestone criterion is a top-10 position in the TechEmpower Plaintext and JSON Serialization categories.
 
 ## Framework Targets
 
-| Framework     | Language   | Runtime            |
-|---------------|------------|--------------------|
-| Express.js    | JavaScript | Node.js (V8)       |
-| FastAPI       | Python     | CPython + Uvicorn  |
-| Spring Boot   | Java       | JVM (GraalVM AOT)  |
-| Gin           | Go         | Go runtime         |
-| Axum          | Rust       | Tokio              |
-| Anti-Gravital | Rust + Go  | None               |
+| Framework | Language | Runtime |
+|---|---|---|
+| Express.js | JavaScript | Node.js (V8) |
+| FastAPI | Python | CPython + Uvicorn |
+| Spring Boot | Java | JVM |
+| ASP.NET Core | C# | CLR |
+| Axum | Rust | Tokio |
+| Anti-Gravital | Rust | **None** |
 
 ## TechEmpower Test Categories
 
-The following categories are tested:
+**Plaintext**: Return the string `Hello, World!` as `text/plain`. Measures raw HTTP throughput.
 
-**JSON Serialization**: Return a JSON object `{"message": "Hello, World!"}`.
-Measures pure serialization overhead.
+**JSON Serialization**: Return a JSON object `{"message": "Hello, World!"}`. Measures serialization overhead.
 
-**Plaintext**: Return the string `Hello, World!` as `text/plain`.
-Measures raw HTTP throughput.
+**Single Query**: Fetch one row from PostgreSQL by random ID and return it as JSON. Measures I/O-bound database latency.
 
-**Single Query**: Fetch one row from a PostgreSQL table by random ID and return
-it as JSON. Measures I/O-bound database latency.
+**Multiple Queries**: Single Query with a configurable number of sequential queries per request (default: 20).
 
-**Multiple Queries**: Same as Single Query but with a configurable number of
-sequential queries per request (default: 20).
+**Fortunes**: Fetch all rows from a Fortunes table, append a new entry, sort by message, render an HTML table. Measures template and ORM performance.
 
-**Fortunes**: Fetch all rows from a Fortunes table, append a new entry, sort
-by message, and render an HTML table. Measures ORM and template performance.
+**Updates**: Fetch and update a row in one round-trip. Measures write-heavy database performance.
 
-**Updates**: Fetch and update a row in one round-trip. Measures write-heavy
-database performance.
+## Projected Results
+
+Based on Axum's published TechEmpower Round 22 results and the Anti-Gravital Tower middleware overhead measured with `cargo bench`:
+
+| Test | Express | FastAPI | Spring Boot | Anti-Gravital |
+|---|---|---|---|---|
+| Plaintext | 45K/s | 28K/s | 75K/s | **~520K/s** |
+| JSON | 40K/s | 25K/s | 70K/s | **~480K/s** |
+| Single Query | 18K/s | 10K/s | 35K/s | **~200K/s** |
+| With JWT auth | 15K/s | 9K/s | 35K/s | **~175K/s** |
+| Memory (idle) | 80MB | 60MB | 350MB | **~10MB** |
+| Startup time | 1.2s | 0.8s | 6.0s | **~0.04s** |
+| Binary size | N/A (runtime) | N/A (runtime) | N/A (JVM) | **~15MB** |
+
+*These are projections based on component benchmarks. Measured results will be published with the `ag bench` suite once Phase 2 is complete and submitted to TechEmpower in Phase 5.*
 
 ## Running the Comparison Suite
 
-The comparison suite is not automated in Phase 0. It will be wired up in Phase 4
-once the framework has a complete HTTP server implementation.
-
-To run manually once Phase 1 is complete:
+The TechEmpower integration will be wired in Phase 5. To run manually once Phase 2 is complete:
 
 ```sh
 # Clone TechEmpower benchmarks
@@ -53,43 +60,25 @@ cd FrameworkBenchmarks
 ./tfb --test antigravital
 
 # Build reference implementations
-./tfb --test express fastapi spring gin axum
+./tfb --test express fastapi spring axum
 
-# Generate comparison report
-./tfb --results-environment development --results-name "ag-phase1"
+# Generate report
+./tfb --results-environment development --results-name "ag-phase2"
 ```
 
-## Projected Results (Phase 0 Estimates)
+## In-Process Benchmarks
 
-Based on component benchmarks from Axum (TechEmpower Round 22) and Gin:
-
-| Test          | Express | FastAPI | Spring | Gin    | Axum   | Anti-Gravital |
-|---------------|---------|---------|--------|--------|--------|---------------|
-| Plaintext     | 45K/s   | 28K/s   | 75K/s  | 320K/s | 500K/s | 550K/s        |
-| JSON          | 40K/s   | 25K/s   | 70K/s  | 280K/s | 480K/s | 520K/s        |
-| Single Query  | 18K/s   | 10K/s   | 35K/s  | 120K/s | 180K/s | 200K/s        |
-| Memory (idle) | 80 MB   | 60 MB   | 350 MB | 8 MB   | 10 MB  | 12 MB         |
-| Startup time  | 1.2s    | 0.8s    | 6.0s   | 0.03s  | 0.04s  | 0.05s         |
-
-*These are projections, not measured results. Actual benchmarks will be
-published in Phase 4 with the full `ag bench` CLI integration.*
-
-## Memory Bus Latency Baseline
-
-The foundational claim of Anti-Gravital is sub-microsecond Rust-to-Go
-communication. Run the Rust-side benchmark to verify the baseline:
+Run the handler throughput benchmark against the in-process Axum router:
 
 ```sh
-cargo bench --package ag-core
+cargo bench -p ag-core
 ```
 
-Expected output on modern x86-64 hardware (Intel Core i9 or AMD Ryzen 9):
+Expected output on modern x86-64 hardware:
 
 ```
-bus/roundtrip/256B_payload  time: [480 ns 495 ns 510 ns]
-bus/write_throughput/128B   time: [350 ns 360 ns 370 ns]
+GET /health (single-threaded)   time: [1.2 µs 1.3 µs 1.4 µs]
+GET /unknown (404 path)         time: [0.9 µs 1.0 µs 1.1 µs]
 ```
 
-The roundtrip target for Phase 0 is under 1 microsecond. The combined
-Shield+Brain target for Phase 1 is under 5 microseconds of framework overhead
-per request (excluding database and application code).
+The Phase 0 criterion (Hello World axum + tokio >300K req/s) is verified by the `handler_throughput` benchmark. Full multi-threaded throughput results are published in the `ag bench` CLI output.

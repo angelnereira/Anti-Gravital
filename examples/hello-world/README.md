@@ -1,7 +1,6 @@
 # Hello World
 
-The simplest possible Anti-Gravital application: a single GET /health endpoint
-that returns the server status as JSON.
+The simplest possible Anti-Gravital application: a single `GET /health` endpoint that returns the server status as JSON.
 
 ## Requirements
 
@@ -33,11 +32,10 @@ Expected response:
 
 ## What This Demonstrates
 
-- The `ag new` scaffold sets up the project structure.
-- The `schema.ag` file defines the HealthCheck model and Health endpoint.
-- The handler in `src/handlers/health.go` implements the endpoint logic.
-- `ag dev` starts the development server without requiring a separate build step.
+- `ag new` scaffolds a project with a `schema.ag` file and a Rust handler stub.
+- `schema.ag` defines the `HealthCheck` model and the `Health` endpoint.
+- `ag dev` compiles and starts the Axum server — no separate build step.
 - The Shield layer validates the request (no body expected for GET /health).
-- The Brain dispatches it to the HealthHandler goroutine pool.
-- The response travels back through the Memory Bus to the Rust layer.
-- The Rust layer serializes and sends the HTTP response.
+- The Core dispatches it to the `health` handler via the Axum router.
+- The handler returns `Json<HealthCheck>` which Axum serializes to the client.
+- The entire stack — from TCP accept to HTTP response — runs in a single Rust binary.

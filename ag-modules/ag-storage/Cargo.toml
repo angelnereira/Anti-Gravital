@@ -1,0 +1,12 @@
+[package]
+name = "ag-storage"
+description = "Anti-Gravital module: ag-storage"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+tracing = { workspace = true }

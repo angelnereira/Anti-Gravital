@@ -4,6 +4,13 @@ members = [
     "ag-core",
     "ag-dsl",
     "ag-cli",
+    "ag-modules/ag-auth",
+    "ag-modules/ag-data",
+    "ag-modules/ag-realtime",
+    "ag-modules/ag-cache",
+    "ag-modules/ag-storage",
+    "ag-modules/ag-ui",
+    "ag-modules/ag-observability",
 ]
 
 [workspace.package]
@@ -11,7 +18,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Gravital Labs <labs@gravital.dev>"]
 license = "Apache-2.0"
-repository = "https://github.com/angelnereira/anti-gravital"
+repository = "https://github.com/gravital-labs/anti-gravital"
 homepage = "https://antigravital.dev"
 documentation = "https://docs.antigravital.dev"
 

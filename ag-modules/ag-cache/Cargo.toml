@@ -1,0 +1,12 @@
+[package]
+name = "ag-cache"
+description = "Anti-Gravital module: ag-cache"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+tracing = { workspace = true }
